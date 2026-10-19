@@ -1,4 +1,5 @@
 import { SorobanRpc } from "@stellar/stellar-sdk";
+import { ProviderPool, parseProviderUrls } from "./providerPool.js";
 import { config } from "../../config/index.js";
 import { CircuitBreaker } from "../utils/circuitBreaker.js";
 import { withTimeoutAndSignal } from "../utils/fetchWithTimeout.js";
@@ -27,6 +28,39 @@ export const horizonCircuitBreaker = new CircuitBreaker(
   (config as unknown as { circuitBreaker?: { horizonThreshold: number } })?.circuitBreaker?.horizonThreshold ?? 5,
   (config as unknown as { circuitBreaker?: { horizonResetTimeoutMs: number } })?.circuitBreaker?.horizonResetTimeoutMs ?? 30_000,
   "Horizon",
+);
+
+
+const stellarConfig = (config as unknown as { stellar?: {
+  rpcUrl: string; horizonUrl: string; rpcFallbackUrls?: string; horizonFallbackUrls?: string;
+} }).stellar;
+const rpcUrls = parseProviderUrls(stellarConfig?.rpcUrl ?? 'https://soroban-testnet.stellar.org', stellarConfig?.rpcFallbackUrls);
+const horizonUrls = parseProviderUrls(stellarConfig?.horizonUrl ?? 'https://horizon-testnet.stellar.org', stellarConfig?.horizonFallbackUrls);
+
+const rpcPool = new ProviderPool('soroban', rpcUrls,
+  config.circuitBreaker?.rpcThreshold ?? 5, config.circuitBreaker?.rpcResetTimeoutMs ?? 30_000,
+  async (url) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getLatestLedger' }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`RPC health returned ${response.status}`);
+    const payload = await response.json() as { result?: { sequence?: number }; error?: unknown };
+    if (payload.error || !Number.isFinite(payload.result?.sequence)) throw new Error('RPC ledger health invalid');
+    return payload.result!.sequence!;
+  },
+);
+
+const horizonPool = new ProviderPool('horizon', horizonUrls,
+  config.circuitBreaker?.horizonThreshold ?? 5, config.circuitBreaker?.horizonResetTimeoutMs ?? 30_000,
+  async (url) => {
+    const response = await fetch(`${url.replace(/\/+$/, '')}/ledgers?order=desc&limit=1`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) throw new Error(`Horizon health returned ${response.status}`);
+    const payload = await response.json() as { _embedded?: { records?: { sequence?: number }[] } };
+    return Number(payload._embedded?.records?.[0]?.sequence) || null;
+  },
 );
 
 export function getRpcServer(): SorobanRpc.Server {
@@ -58,8 +92,8 @@ export async function rpcCall<T>(
         });
       }
 
-      return rpcCircuitBreaker.call(async () => {
-        const server = getRpcServer();
+      return rpcPool.call(async (providerUrl) => {
+        const server = new SorobanRpc.Server(providerUrl, { allowHttp: providerUrl.startsWith('http://') });
         const promise = operation(server);
         try {
           return await withTimeoutAndSignal(promise, timeoutMs, opts.signal, name);
@@ -107,14 +141,16 @@ export async function horizonFetch(
         });
       }
 
-      return horizonCircuitBreaker.call(async () => {
+      return horizonPool.call(async (providerUrl) => {
         // Import here to avoid cycle
         const { fetchWithTimeout } = await import("../utils/fetchWithTimeout.js");
-        return fetchWithTimeout(url, {
+        const response = await fetchWithTimeout(`${providerUrl.replace(/\/+$/, '')}${path}`, {
           ...options,
           timeoutMs,
           parentSignal: signal,
         });
+        if (response.status === 429 || response.status >= 500) throw new Error(`Horizon provider returned ${response.status}`);
+        return response;
       });
     },
     { kind: 2 }, // SpanKind.CLIENT
