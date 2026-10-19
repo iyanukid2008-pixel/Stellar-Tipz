@@ -91,6 +91,8 @@ export {
 } from './authChallengeCleanup.worker.js';
 
 export { bootstrapJobs } from './main.js';
+export { TREASURY_MONITOR_QUEUE, getTreasuryMonitorQueue } from './treasuryMonitor.queue.js';
+export { createTreasuryMonitorWorker, scheduleTreasuryMonitor } from './treasuryMonitor.worker.js';
 
 export { RETENTION_QUEUE, getRetentionQueue } from './retention.queue.js';
 export {
@@ -99,3 +101,5 @@ export {
   createRetentionWorker,
   scheduleRetentionPrune,
 } from './retention.worker.js';
+
+export { createFinancialReconciliationWorker, scheduleFinancialReconciliation } from './financialReconciliation.worker.js';

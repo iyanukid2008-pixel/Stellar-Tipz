@@ -50,9 +50,11 @@ export const config = {
     network: env.STELLAR_NETWORK,
     rpcUrl: env.SOROBAN_RPC_URL,
     horizonUrl: env.HORIZON_URL,
+    rpcFallbackUrls: env.SOROBAN_RPC_FALLBACK_URLS,
+    horizonFallbackUrls: env.HORIZON_FALLBACK_URLS,
     networkPassphrase: env.NETWORK_PASSPHRASE,
     contractId: env.CONTRACT_ID,
-    explorerBaseUrl: `https://stellar.expert/explorer/${env.STELLAR_NETWORK === 'MAINNET' ? 'public' : env.STELLAR_NETWORK.toLowerCase()}`,
+    explorerBaseUrl: `https://stellar.expert/explorer/${env.STELLAR_NETWORK === 'MAINNET' ? 'public' : (env.STELLAR_NETWORK ?? 'TESTNET').toLowerCase()}`,
   },
 
   indexer: {
@@ -71,6 +73,12 @@ export const config = {
       leaseMs: env.INDEXER_LEADER_LEASE_MS,
       renewIntervalMs: env.INDEXER_LEADER_RENEW_INTERVAL_MS,
     },
+  },
+
+  treasury: {
+    address: env.TREASURY_ADDRESS,
+    openingBalanceStroops: env.TREASURY_OPENING_BALANCE_STROOPS,
+    monitorCron: env.TREASURY_MONITOR_CRON,
   },
 
   twitter: {

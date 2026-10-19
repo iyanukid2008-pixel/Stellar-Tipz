@@ -105,6 +105,48 @@ groups:
             Neither wallet sign-ins nor on-chain profile registrations created a
             user in six hours, although the same window yesterday did.
 
+  - name: stellar-tipz-contract-event-security
+    rules:
+      - alert: ContractEventRateAnomaly
+        expr: increase(tipz_contract_event_anomalies_total{kind="rate_deviation"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          area: security
+        annotations:
+          summary: Contract event rate deviated from its rolling baseline
+          description: >-
+            The indexer observed a contract event type several standard deviations
+            above its rolling baseline. Inspect the structured anomaly log for the
+            event type, observed count, baseline and affected ledger.
+          runbook: backend/docs/METRICS.md#contract-event-anomalies
+
+      - alert: HighValueContractTransaction
+        expr: increase(tipz_contract_event_anomalies_total{kind="high_value"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          area: security
+        annotations:
+          summary: High-value contract transaction detected
+          description: >-
+            A contract event met the configured high-value threshold. Inspect the
+            anomaly log for its transaction hash, ledger, amount and account.
+          runbook: backend/docs/METRICS.md#contract-event-anomalies
+
+      - alert: RepeatedWithdrawalPattern
+        expr: increase(tipz_contract_event_anomalies_total{kind="withdrawal_burst"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          area: security
+        annotations:
+          summary: Repeated withdrawals detected from one account
+          description: >-
+            One account reached the configured withdrawal burst threshold. Inspect
+            the anomaly log and consider pausing withdrawals if activity is malicious.
+          runbook: backend/docs/METRICS.md#contract-event-anomalies
+
   - name: stellar-tipz-http
     rules:
       - alert: HttpServerErrorRateHigh
@@ -172,3 +214,48 @@ groups:
           description: >-
             At least one query waited longer than DATABASE_POOL_TIMEOUT_SECONDS
             for a connection in the last ten minutes.
+
+  - name: stellar-tipz-treasury-security
+    rules:
+      - alert: UnexpectedTreasuryOutflow
+        expr: increase(tipz_treasury_unexpected_outflows_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          area: treasury
+        annotations:
+          summary: Treasury balance decreased unexpectedly
+          description: >-
+            The fee collector's observed native XLM balance fell below its prior
+            observation. Preserve the snapshot and follow backend/docs/TREASURY_MONITORING.md.
+          runbook: backend/docs/TREASURY_MONITORING.md
+
+  - name: stellar-tipz-credit
+    rules:
+      - alert: CreditScoreRecomputeStalled
+        expr: time() - tipz_credit_recompute_last_success_timestamp_seconds > 28800
+        for: 10m
+        labels:
+          severity: critical
+          area: credit
+        annotations:
+          summary: Credit recomputation has not completed successfully for 8 hours
+          runbook: docs/runbooks/credit-recompute.md
+      - alert: CreditScoreOldestStale
+        expr: tipz_credit_score_oldest_age_seconds > 28800
+        for: 10m
+        labels:
+          severity: critical
+          area: credit
+        annotations:
+          summary: At least one stored creator score is over 8 hours old
+          runbook: docs/runbooks/credit-recompute.md
+      - alert: CreditScoreRecomputeFailure
+        expr: increase(tipz_credit_recompute_failures_total[7h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          area: credit
+        annotations:
+          summary: Credit recompute encountered an individual-score or job failure
+          runbook: docs/runbooks/credit-recompute.md
